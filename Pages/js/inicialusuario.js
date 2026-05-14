@@ -440,60 +440,6 @@ document.addEventListener('DOMContentLoaded', () => { //corrigido
     // Inicialização
     carregarMissoes();
 
-    // ============================================================
-    // NOTAS E INICIALIZAÇÃO FINAL
-    // ============================================================
-    const noteArea = document.getElementById('quick-note');
-    const charCount = document.getElementById('note-chars');
-    const noteSaved = document.getElementById('note-saved');
-
-    if (noteArea) {
-        noteArea.value = localStorage.getItem('fs_current_note') || '';
-        charCount.innerText = `${noteArea.value.length}/1000`;
-
-        noteArea.addEventListener('input', () => {
-            localStorage.setItem('fs_current_note', noteArea.value);
-            charCount.innerText = `${noteArea.value.length}/1000`;
-            noteSaved.style.opacity = '1';
-            setTimeout(() => noteSaved.style.opacity = '0', 2000);
-        });
-    }
-
-    document.getElementById('btn-save-note')?.addEventListener('click', () => {
-        const text = noteArea.value.trim();
-        if (!text) return;
-        const history = JSON.parse(localStorage.getItem('fs_note_history') || '[]');
-        history.unshift({ text, date: new Date().toLocaleString('pt-BR') });
-        localStorage.setItem('fs_note_history', JSON.stringify(history.slice(0, 10)));
-        noteArea.value = '';
-        localStorage.setItem('fs_current_note', '');
-        charCount.innerText = `0/1000`;
-        renderHistory();
-    });
-    document.getElementById('btn-clear-note')?.addEventListener('click', () => {
-        if (confirm("Deseja apagar o rascunho da nota?")) {
-            noteArea.value = '';
-            localStorage.setItem('fs_current_note', '');
-            charCount.innerText = `0/1000`;
-        }
-    });
-
-    function renderHistory() {
-        const historyList = document.getElementById('note-history-list');
-        const emptyMsg = document.getElementById('note-history-empty');
-        const history = JSON.parse(localStorage.getItem('fs_note_history') || '[]');
-        if (!historyList) return;
-        historyList.innerHTML = '';
-        if (emptyMsg) emptyMsg.style.display = history.length === 0 ? 'flex' : 'none';
-        document.getElementById('note-history-count').innerText = `${history.length} notas`;
-        history.forEach(item => {
-            const li = document.createElement('li');
-            li.className = 'history-item';
-            li.innerHTML = `<small>${item.date}</small><p>${item.text}</p>`;
-            historyList.appendChild(li);
-        });
-    }
-
     const modalAdd = document.getElementById('modal-add-task');
     const modalDelete = document.getElementById('modal-delete-task');
     const inputAdd = document.getElementById('task-input');

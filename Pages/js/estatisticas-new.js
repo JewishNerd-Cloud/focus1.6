@@ -1,265 +1,277 @@
-// ══════════════════════════════════════
-//  ESTATÍSTICAS — Focus Study
-//  estatisticas-new.js  (corrigido) //criar tela nova
-// ══════════════════════════════════════
+document.addEventListener('DOMContentLoaded', async () => {
+  let currentPeriod = 'monthly';
+  let chart = null;
+  let allDailyStats = [];
 
-document.addEventListener('DOMContentLoaded', () => {
+  const periods = {
+    daily: { label: 'Hoje', days: 1 },
+    weekly: { label: 'Esta semana', days: 7 },
+    monthly: { label: 'Este mês', days: 30 },
+    semester: { label: 'Este semestre', days: 180 },
+    annual: { label: 'Este ano', days: 365 }
+  };
 
-  // ── Date ──
-  const today = new Date();
-  document.getElementById('current-date').innerText = today.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+  // ════════════════════════════════════════════════════════
+  // Funções utilitárias
+  // ════════════════════════════════════════════════════════
 
-  // Load avatar
-  const profile = JSON.parse(localStorage.getItem('fs_profile') || '{}');
-  if (profile.avatar) {
-    const navAv = document.getElementById('nav-avatar');
-    if (navAv) navAv.src = profile.avatar;
-  }
-
-  // ── Year navigation ──
-  let viewYear = today.getFullYear();
-  document.getElementById('year-label').textContent = viewYear;
-
-  document.getElementById('prev-year').addEventListener('click', () => { viewYear--; document.getElementById('year-label').textContent = viewYear; renderAll(); });
-  document.getElementById('next-year').addEventListener('click', () => { viewYear++; document.getElementById('year-label').textContent = viewYear; renderAll(); });
-
-  // ── Week offset for weekly hours ──
-  let weekOffset = 0;
-
-  function getWeekDates(offset) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - d.getDay() + 1 + offset * 7); // Monday
-    return Array.from({ length: 7 }, (_, i) => {
-      const day = new Date(d);
-      day.setDate(d.getDate() + i);
-      return day;
+  function formatDate(date) {
+    return date.toLocaleDateString('pt-BR', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
     });
   }
 
-  function formatWeekLabel(offset) {
-    const dates = getWeekDates(offset);
-    const fmt = d => d.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' });
-    return `${fmt(dates[0])} – ${fmt(dates[6])}`;
+  // ════════════════════════════════════════════════════════
+  // Inicialização da data
+  // ════════════════════════════════════════════════════════
+
+  function updateCurrentDate() {
+    const el = document.getElementById('current-date');
+    if (el) el.textContent = formatDate(new Date());
   }
+  updateCurrentDate();
 
-  function updateWeekLabel() {
-    const el = document.getElementById('wh-week-label');
-    if (el) el.textContent = weekOffset === 0 ? 'Esta semana' : formatWeekLabel(weekOffset);
-  }
+  // ════════════════════════════════════════════════════════
+  // Carregar dados do backend
+  // ════════════════════════════════════════════════════════
 
-  document.getElementById('wh-prev-week')?.addEventListener('click', () => { weekOffset--; updateWeekLabel(); renderWeeklyHours(); });
-  document.getElementById('wh-next-week')?.addEventListener('click', () => { weekOffset++; updateWeekLabel(); renderWeeklyHours(); });
+  async function loadData(period = 'monthly') {
+    try {
+      console.log('📊 Carregando dados do período:', period);
+      const res = await fetch(`php/api_estatisticas.php?action=stats&period=${period}`);
+      const data = await res.json();
 
-  // ── Study hours data ──
-  function getStudyData() { return JSON.parse(localStorage.getItem('fs_study_hours') || '{}'); }
-  function saveStudyData(data) { localStorage.setItem('fs_study_hours', JSON.stringify(data)); }
+      if (!data.success) {
+        console.error('❌ Erro:', data.error);
+        return null;
+      }
 
-  // Weekly goals: { 0: 60, 1: 90, ... } (Sun=0 ... Sat=6), minutes
-  function getWeekGoals() {
-    const defaults = { 0: 0, 1: 90, 2: 90, 3: 90, 4: 90, 5: 90, 6: 30 };
-    return { ...defaults, ...JSON.parse(localStorage.getItem('fs_week_goals') || '{}') };
-  }
-  function saveWeekGoals(g) { localStorage.setItem('fs_week_goals', JSON.stringify(g)); }
-
-  // ── Summary ──
-  function updateSummary() {
-    const data = getStudyData();
-    const pomosTotal = parseInt(localStorage.getItem('fs_pomo_total') || '0');
-    const settings = JSON.parse(localStorage.getItem('fs_settings') || '{}');
-
-    document.getElementById('s-sessions').textContent = pomosTotal;
-
-    const totalMins = Object.values(data).reduce((a, b) => a + b, 0);
-    const hours = Math.floor(totalMins / 60);
-    const mins = totalMins % 60;
-    document.getElementById('s-hours').textContent = mins ? `${hours}h${mins}m` : `${hours}h`;
-
-    // Streak
-    let streak = 0, d = new Date(today);
-    while (true) {
-      const k = fmtKey(d);
-      if (!data[k] || data[k] === 0) break;
-      streak++;
-      d.setDate(d.getDate() - 1);
+      console.log('✅ Dados carregados:', data);
+      allDailyStats = data.daily_stats || [];
+      return data;
+    } catch (e) {
+      console.error('❌ Erro ao carregar dados:', e);
+      return null;
     }
-    localStorage.setItem('fs_streak', streak);
-    document.getElementById('s-streak').textContent = streak + (streak === 1 ? ' dia' : ' dias');
-
-    // Habits done
-    const habits = JSON.parse(localStorage.getItem('fs_habits') || '[]');
-    let habitsDone = 0;
-    const yearStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
-    habits.forEach(h => {
-      habitsDone += Object.keys(h.checks || {}).filter(k => k.startsWith(yearStr)).length;
-    });
-    document.getElementById('s-habits-done').textContent = habitsDone;
   }
 
-  function fmtKey(d) {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  // ════════════════════════════════════════════════════════
+  // Atualizar cards de resumo
+  // ════════════════════════════════════════════════════════
+
+  function updateStats(data) {
+    if (!data) return;
+
+    const summary = data.summary || {};
+    const dailyStats = data.daily_stats || [];
+
+    let maxDay = 0;
+    let bestDayName = '--';
+    let streak = 0;
+
+    // Encontrar melhor dia
+    dailyStats.forEach(day => {
+      if (day.completas > maxDay) {
+        maxDay = day.completas;
+        bestDayName = new Date(day.data).toLocaleDateString('pt-BR', { weekday: 'short' });
+      }
+    });
+
+    // Calcular sequência
+    const sorted = [...dailyStats].reverse();
+    for (const day of sorted) {
+      if (day.completas > 0) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+
+    document.getElementById('stat-completed').textContent = summary.total_completas || 0;
+    document.getElementById('stat-rate').textContent = (summary.completion_rate || 0) + '%';
+    document.getElementById('stat-best-day').textContent = bestDayName;
+    document.getElementById('stat-streak').textContent = streak;
   }
 
-  // ── Weekly hours ──
-  const DAYS_NAMES = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  // ════════════════════════════════════════════════════════
+  // Renderizar gráfico com Chart.js
+  // ════════════════════════════════════════════════════════
 
-  function renderWeeklyHours() {
-    const grid = document.getElementById('weekly-hours-grid');
-    const data = getStudyData();
-    const goals = getWeekGoals();
+  function renderChart() {
+    if (!allDailyStats || allDailyStats.length === 0) return;
 
-    const weekDates = getWeekDates(weekOffset);
+    const ctx = document.getElementById('main-chart');
+    if (!ctx) return;
 
-    grid.innerHTML = '';
-
-    let maxMins = 0;
-    const days = weekDates.map(d => {
-      const key = fmtKey(d);
-      const mins = data[key] || 0;
-      const goal = goals[d.getDay()] || 0;
-      if (mins > maxMins) maxMins = mins;
-      if (goal > maxMins) maxMins = goal;
-      return { d, key, mins, goal, dayOfWeek: d.getDay() };
+    const labels = allDailyStats.map(day => {
+      const d = new Date(day.data);
+      if (currentPeriod === 'daily') return 'Hoje';
+      if (currentPeriod === 'weekly') return d.toLocaleDateString('pt-BR', { weekday: 'short' });
+      if (currentPeriod === 'monthly') return d.getDate();
+      if (currentPeriod === 'semester' || currentPeriod === 'annual') {
+        return d.toLocaleDateString('pt-BR', { month: 'short' });
+      }
+      return day.data;
     });
 
-    const barMax = Math.max(maxMins, 120); // at least 2h scale
+    const doneCounts = allDailyStats.map(day => day.completas);
+    const totalCounts = allDailyStats.map(day => day.total_tarefas);
 
-    days.forEach(({ d, key, mins, goal, dayOfWeek }) => {
-      const isTodayDay = d.toDateString() === today.toDateString();
-      const overGoal = goal > 0 && mins >= goal;
-      const barH = mins ? Math.max(Math.round(mins / barMax * 100), 3) : 0;
-      const goalH = goal ? Math.round(goal / barMax * 100) : 0;
+    // Atualizar label do período
+    if (allDailyStats.length > 0) {
+      const startDate = new Date(allDailyStats[0].data);
+      const endDate = new Date(allDailyStats[allDailyStats.length - 1].data);
+      const label = document.getElementById('chart-label');
+      label.textContent = `${startDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} → ${endDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`;
+    }
 
-      const col = document.createElement('div');
-      col.className = 'wh-day-col';
-      col.innerHTML = `
-        <div class="wh-day-name${isTodayDay ? ' today-name' : ''}">${DAYS_NAMES[dayOfWeek]}</div>
-        <div class="wh-bar-track">
-          ${goal ? `<div class="wh-goal-line" style="bottom:${goalH}%"></div>` : ''}
-          <div class="wh-bar-fill${overGoal ? ' over-goal' : ''}" style="height:${barH}%"></div>
-        </div>
-        <div class="wh-day-info">
-          <div class="wh-day-hours">${mins ? (Math.floor(mins / 60) ? Math.floor(mins / 60) + 'h' : '') + (mins % 60 ? (mins % 60) + 'm' : '') : '0m'}</div>
-          <div class="wh-day-goal">
-            Meta: <span class="goal-text-${dayOfWeek}">${goal ? (Math.floor(goal / 60) ? Math.floor(goal / 60) + 'h' : '') + (goal % 60 ? (goal % 60) + 'm' : '') : '--'}</span>
-            <button class="wh-edit-goal" data-day="${dayOfWeek}">✎</button>
-          </div>
-        </div>
-        <button class="wh-log-btn" data-key="${key}" data-day="${dayOfWeek}">+ Log</button>
-      `;
-      grid.appendChild(col);
-    });
+    // Destruir gráfico anterior
+    if (chart) chart.destroy();
 
-    // Edit goal buttons
-    grid.querySelectorAll('.wh-edit-goal').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const dow = parseInt(btn.dataset.day);
-        const g = getWeekGoals();
-        const currentGoal = g[dow] || 0;
-        const inp = prompt(`Meta para ${DAYS_NAMES[dow]} (minutos):`, currentGoal);
-        if (inp === null) return;
-        const val = Math.max(0, parseInt(inp) || 0);
-        g[dow] = val;
-        saveWeekGoals(g);
-        renderWeeklyHours();
-      });
-    });
-
-    // Log hours buttons
-    grid.querySelectorAll('.wh-log-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const key = btn.dataset.key;
-        const dow = parseInt(btn.dataset.day);
-        const data = getStudyData();
-        const cur = data[key] || 0;
-        const inp = prompt(`Horas estudadas em ${DAYS_NAMES[dow]} (minutos totais, atual: ${cur}min):`);
-        if (inp === null) return;
-        const val = Math.max(0, parseInt(inp) || 0);
-        data[key] = val;
-        saveStudyData(data);
-        renderWeeklyHours();
-        updateSummary();
-        renderAnnual();
-        checkAchievements();
-      });
-    });
-
-    // Month header — place labels above corresponding week columns
-    // Each cell = 15px (12px + 3px gap)
-    let monthHeaderHtml = '<div style="display:flex;margin-left:40px;margin-bottom:4px;position:relative;">';
-    monthPositions.forEach(({ wi, month }) => {
-      monthHeaderHtml += `<div class="annual-month-label" style="position:absolute;left:${wi * 15}px;white-space:nowrap">${MONTH_ABBR[month]}</div>`;
-    });
-    monthHeaderHtml += '</div>';
-
-    // Grid cells
-    let gridHtml = '<div class="annual-grid">';
-    weeks.forEach(wk => {
-      gridHtml += '<div class="annual-week-col">';
-      wk.forEach(d => {
-        if (!d) {
-          gridHtml += '<div class="annual-cell" style="background:transparent;cursor:default;pointer-events:none"></div>';
-          return;
+    chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Missões cumpridas',
+            data: doneCounts,
+            backgroundColor: 'rgba(6,182,212,0.8)',
+            borderColor: 'rgb(6,182,212)',
+            borderWidth: 2,
+            borderRadius: 8,
+            barPercentage: 0.7
+          },
+          {
+            label: 'Total de missões',
+            data: totalCounts,
+            backgroundColor: 'rgba(255,255,255,0.1)',
+            borderColor: 'rgba(255,255,255,0.2)',
+            borderWidth: 1,
+            borderRadius: 8,
+            barPercentage: 0.7
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: {
+              color: 'rgba(255,255,255,0.7)',
+              font: { size: 12, weight: '600' },
+              padding: 16
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { color: 'rgba(255,255,255,0.5)' },
+            grid: { color: 'rgba(255,255,255,0.05)' }
+          },
+          x: {
+            ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 12 } },
+            grid: { display: false }
+          }
         }
-        const k = fmtKey(d);
-        const val = data[k] || 0;
-        let level = 0;
-        if (val > 0) level = Math.min(4, Math.ceil(val / maxVal * 4));
-        const isT = d.toDateString() === today.toDateString();
-        gridHtml += `<div class="annual-cell" data-level="${level}" data-date="${k}" data-mins="${val}"
-          title="${d.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', year: 'numeric' })}: ${val}min"
-          ${isT ? 'style="outline:2px solid var(--cyan);outline-offset:1px;"' : ''}></div>`;
-      });
-      gridHtml += '</div>';
+      }
     });
-    gridHtml += '</div>';
-
-    // Compute total width of the grid for the month header container
-    const totalWeeks = weeks.length;
-    const gridWidth = totalWeeks * 15; // 12px cell + 3px gap
-
-    wrap.innerHTML =
-      `<div style="position:relative;height:18px;margin-left:40px;width:${gridWidth}px;margin-bottom:2px">${monthPositions.map(({ wi, month }) =>
-        `<span class="annual-month-label" style="position:absolute;left:${wi * 15}px">${MONTH_ABBR[month]}</span>`
-      ).join('')}</div>` +
-      `<div style="display:flex">${dayLabelsHtml}${gridHtml}</div>`;
   }
 
-  function renderAll() {
-    updateSummary();
-    updateWeekLabel();
-    renderWeeklyHours();
-  }
-  function aplicarTema(settings) {
-    if (!settings || !settings.accentColor) return;
+  // ════════════════════════════════════════════════════════
+  // Renderizar heatmap anual
+  // ════════════════════════════════════════════════════════
 
-    const cores = {
-      'cyan': '#06b6d4',
-      'pink': '#ec4899',
-      'violet': '#8b5cf6',
-      'green': '#10b981',
-      'orange': '#f59e0b'
-    };
+  async function renderAnnualHeatmap() {
+    const data = await loadData('annual');
+    if (!data) return;
 
-    const hex = cores[settings.accentColor] || cores['cyan'];
+    const container = document.getElementById('annual-heatmap');
+    if (!container) return;
 
-    // Aplica a cor no root do documento (afeta todo o CSS que usa var(--cyan))
-    document.documentElement.style.setProperty('--cyan', hex);
+    container.innerHTML = '';
 
-    // Se quiser aplicar o modo compacto também:
-    document.body.classList.toggle('compact-mode', settings.compact);
-  }
+    const today = new Date();
+    const yearAgo = new Date(today.getFullYear(), 0, 1);
 
-  // Executa ao carregar a página
-  const settingsSalvas = JSON.parse(localStorage.getItem('fs_settings') || '{}');
-  aplicarTema(settingsSalvas);
+    let maxActivity = 0;
+    const activity = {};
 
-  // Escuta mudanças em tempo real (se mudar a cor na aba de configurações)
-  window.addEventListener('storage', (e) => {
-    if (e.key === 'fs_settings') {
-      const novosSettings = JSON.parse(e.newValue);
-      aplicarTema(novosSettings);
+    // Mapear dados
+    (data.daily_stats || []).forEach(day => {
+      activity[day.data] = day.completas;
+      if (day.completas > maxActivity) maxActivity = day.completas;
+    });
+
+    // Criar grid de semanas
+    let currentDate = new Date(yearAgo);
+    const weeks = [];
+
+    while (currentDate <= today) {
+      const week = [];
+      for (let i = 0; i < 7; i++) {
+        if (currentDate <= today) {
+          week.push(new Date(currentDate));
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
+      }
+      if (week.length > 0) weeks.push(week);
     }
+
+    // Renderizar células
+    weeks.forEach(week => {
+      const weekCol = document.createElement('div');
+      weekCol.style.display = 'flex';
+      weekCol.style.flexDirection = 'column';
+      weekCol.style.gap = '3px';
+
+      week.forEach(date => {
+        const dateStr = date.toISOString().split('T')[0];
+        const count = activity[dateStr] || 0;
+        const level = count === 0 ? 0 : Math.max(1, Math.ceil((count / maxActivity) * 4));
+
+        const cell = document.createElement('div');
+        cell.className = 'heatmap-cell';
+        cell.dataset.level = level;
+        cell.title = `${dateStr}: ${count} tarefas completas`;
+        weekCol.appendChild(cell);
+      });
+
+      container.appendChild(weekCol);
+    });
+  }
+
+  // ════════════════════════════════════════════════════════
+  // Event Listeners
+  // ════════════════════════════════════════════════════════
+
+  document.querySelectorAll('.period-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+      e.target.classList.add('active');
+      currentPeriod = e.target.dataset.period;
+
+      const data = await loadData(currentPeriod);
+      if (data) {
+        updateStats(data);
+        renderChart();
+      }
+    });
   });
 
-  renderAll();
+  // ════════════════════════════════════════════════════════
+  // Inicialização
+  // ════════════════════════════════════════════════════════
+
+  const initialData = await loadData(currentPeriod);
+  if (initialData) {
+    updateStats(initialData);
+    renderChart();
+  }
+  await renderAnnualHeatmap();
 });
