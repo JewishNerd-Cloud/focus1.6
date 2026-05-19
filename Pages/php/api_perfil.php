@@ -1,7 +1,9 @@
 <?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/MySQLClass.php'; 
-session_start();
 
 $mysql = new MySQLClass();
 $profile_id = $_SESSION['profile_id'] ?? null;
@@ -25,8 +27,14 @@ try {
                 WHERE p.profile_id = ?";
 
         $res = $mysql->searchSafe($sql, [$profile_id]);
-        if (!$res) throw new Exception("Perfil não encontrado");
-
+        if (!$res || empty($res)) {
+            http_response_code(404);
+            echo json_encode([
+                'success' => false, 
+                'error' => 'Perfil não encontrado'
+            ]);
+            exit;
+        }
         echo json_encode(['success' => true, 'data' => $res[0]]);
         exit;
     }
@@ -103,5 +111,9 @@ try {
     if (isset($conn) && $method === 'POST') {
         $conn->rollback();
     }
+    if (http_response_code() === 200) {
+        http_response_code(400);
+    }
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    exit;
 }

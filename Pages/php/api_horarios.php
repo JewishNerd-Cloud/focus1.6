@@ -1,4 +1,8 @@
 <?php
+// Impede que avisos ou erros crus quebrem a estrutura do JSON
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
+
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/MySQLClass.php';
 session_start();
@@ -20,8 +24,11 @@ $action = $_GET['action'] ?? $input['action'] ?? $_POST['acao'] ?? null;
 try {
     // --- LISTAR ---
     if ($method === 'GET' && $action === 'list') {
-        $inicio = $_GET['inicio'] . ' 00:00:00';
-        $fim = $_GET['fim'] . ' 23:59:59';
+        $dataInicio = !empty($_GET['inicio']) ? $_GET['inicio'] : date('Y-m-d');
+        $dataFim = !empty($_GET['fim']) ? $_GET['fim'] : date('Y-m-d');
+
+        $inicio = $dataInicio . ' 00:00:00';
+        $fim = $dataFim . ' 23:59:59';
 
         $sql = "SELECT 
             sch.scheduling_id, 
@@ -43,19 +50,23 @@ try {
         $result = $mysql->searchSafe($sql, [$profile_id, $inicio, $fim]);
 
         $output = [];
-        foreach ($result as $row) {
-            $dataChave = date('Y-m-d', strtotime($row['Scheduled_for']));
-            $output[$dataChave][] = [
-                'scheduling_id' => $row['scheduling_id'],
-                'done'          => (bool)$row['Done'],
-                'title'         => $row['Task'],
-                'tag'           => $row['tag'],
-                'note'          => $row['note'],
-                'start'         => date('H:i', strtotime($row['Scheduled_for'])),
-                'end'           => $row['Repeats_until'] ? date('H:i', strtotime($row['Repeats_until'])) : '',
-                'priority'      => $row['Priority']
-            ];
+        // Se o resultado não for um array válido ou estiver vazio, retorna JSON limpo
+        if ($result && is_array($result)) {
+            foreach ($result as $row) {
+                $dataChave = date('Y-m-d', strtotime($row['Scheduled_for']));
+                $output[$dataChave][] = [
+                    'scheduling_id' => $row['scheduling_id'],
+                    'done'          => (bool)$row['Done'],
+                    'title'         => $row['Task'],
+                    'tag'           => $row['tag'],
+                    'note'          => $row['note'],
+                    'start'         => date('H:i', strtotime($row['Scheduled_for'])),
+                    'end'           => $row['Repeats_until'] ? date('H:i', strtotime($row['Repeats_until'])) : '',
+                    'priority'      => $row['Priority']
+                ];
+            }
         }
+        
         echo json_encode($output);
         exit;
     }
@@ -75,16 +86,26 @@ try {
 
         $sqlTask = "INSERT INTO tasks (profile_id, title, tag, note, priority, created_at) VALUES (?, ?, ?, ?, 'low', NOW())";
         $mysql->execSafe($sqlTask, [$profile_id, $titulo, $tag, $notes]);
-        $task_id = $mysql->lastInsertId();
+
+        $task_id = $db->insert_id;
+
+        if (!$task_id) {
+            throw new Exception("Falha ao capturar o ID da tarefa inserida.");
+        }
 
         $full_start = $data . ' ' . $inicio . ':00';
         $full_end   = !empty($fim) ? ($data . ' ' . $fim . ':00') : null;
 
-        $sqlSched = "INSERT INTO schedules (profile_id, start_time, end_time, frequency) VALUES (?, ?, ?, 'once')";
+        $sqlSched = "INSERT INTO schedules (profile_id, start_time, end_time, frequency, created_at) VALUES (?, ?, ?, 'once', NOW())";
         $mysql->execSafe($sqlSched, [$profile_id, $full_start, $full_end]);
-        $schedule_id = $mysql->lastInsertId();
 
-        $mysql->execSafe("INSERT INTO schedulings (schedule_id, task_id, done) VALUES (?, ?, 0)", [$schedule_id, $task_id]);
+        $schedule_id = $db->insert_id;
+
+        if (!$schedule_id) {
+            throw new Exception("Falha ao capturar o ID do cronograma inserido.");
+        }
+
+        $mysql->execSafe("INSERT INTO schedulings (schedule_id, task_id, done, created_at) VALUES (?, ?, 0, NOW())", [$schedule_id, $task_id]);
 
         $db->commit();
         echo json_encode(['success' => true]);
@@ -103,7 +124,7 @@ try {
             $mysql->execSafe("DELETE FROM schedulings WHERE scheduling_id = ?", [$input['id']]);
             $mysql->execSafe("DELETE FROM schedules WHERE schedule_id = ?", [$sid]);
             $checkUsage = $mysql->searchSafe("SELECT COUNT(*) as total FROM schedulings WHERE task_id = ?", [$tid]);
-            if ($checkUsage[0]['total'] == 0) {
+            if ($checkUsage && $checkUsage[0]['total'] == 0) {
                 $mysql->execSafe("DELETE FROM tasks WHERE task_id = ?", [$tid]);
             }
         }
@@ -126,15 +147,15 @@ try {
                                 AND s.start_time BETWEEN ? AND ?
                           ) AS temp
                       )";
-        
+
         $mysql->execSafe($sqlDelete, [
-            $profile_id, 
-            $input['inicio'] . ' 00:00:00', 
+            $profile_id,
+            $input['inicio'] . ' 00:00:00',
             $input['fim'] . ' 23:59:59'
         ]);
 
         $mysql->execSafe("DELETE FROM schedules WHERE profile_id = ? AND schedule_id NOT IN (SELECT schedule_id FROM schedulings)", [$profile_id]);
-        $mysql->execSafe("DELETE FROM tasks WHERE profile_id = ? AND task_id NOT IN (SELECT task_id FROM schedulings)", [$profile_id]);
+        $mysql->execSafe("DELETE FROM tasks WHERE profile_id = ? AND task_id NOT IN (SELECT schedule_id FROM schedulings)", [$profile_id]);
 
         $db->commit();
         echo json_encode(['success' => true]);
@@ -149,9 +170,15 @@ try {
         exit;
     }
 
+    throw new Exception("Ação inválida ou não informada.");
 } catch (Exception $e) {
-    if (isset($db) && $db->connect_errno == 0) @$db->rollback();
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    if (isset($db) && $db->ping()) {
+        @$db->rollback();
+    }
+    echo json_encode([
+        'success' => false,
+        'error' => $e->getMessage()
+    ]);
     exit;
 }
 
