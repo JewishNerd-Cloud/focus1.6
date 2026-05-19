@@ -283,14 +283,14 @@
 
             <div class="adm-tabs-bar">
                 <div class="adm-tabs">
-                    <button class="adm-tab active" data-ticket-filter="all">Todos</button>
-                    <button class="adm-tab" data-ticket-filter="open">
+                    <button class="adm-tab active" data-status="all">Todos</button>
+                    <button class="adm-tab" data-status="pending">
                         <span class="tab-dot dot-yellow"></span>Abertos
                     </button>
-                    <button class="adm-tab" data-ticket-filter="in_progress">
+                    <button class="adm-tab" data-status="replied">
                         <span class="tab-dot dot-cyan"></span>Em andamento
                     </button>
-                    <button class="adm-tab" data-ticket-filter="resolved">
+                    <button class="adm-tab" data-status="closed">
                         <span class="tab-dot dot-green"></span>Resolvidos
                     </button>
                 </div>
@@ -429,5 +429,6 @@
 <div id="adm-toast"></div>
 
 <script src="../js/adm.js"></script>
+<script src="../js/avatar.js" ></script>
 </body>
 </html>

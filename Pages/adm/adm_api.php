@@ -19,10 +19,22 @@ try {
 
     if ($action === 'me' && $method === 'GET') {
         $uid  = (int)($_SESSION['user_id'] ?? 0);
-        $nome = $_SESSION['user_nome'] ?? 'Admin';
-        $foto = $_SESSION['user_foto'] ?? null;
-
-        echo json_encode(['success' => true, 'nome' => $nome, 'foto' => $foto]);
+        if ($uid <= 0) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'error' => 'Sessão inválida']);
+            exit;
+        }
+        $stmt = $conn->prepare("SELECT username, photo FROM profiles WHERE user_id = ?");
+        $stmt->bind_param("i", $uid);
+        $stmt->execute();
+        $resultado = $stmt->get_result()->fetch_object();
+        $nomeReal = $resultado->username ?? 'Administrador';
+        $fotoReal = $resultado->photo ?? null;
+        echo json_encode([
+            'success' => true,
+            'nome' => $nomeReal,
+            'foto' => $fotoReal
+        ]);
         exit;
     }
 
@@ -34,14 +46,16 @@ try {
         try {
             $r = $conn->query("SELECT COUNT(*) AS c FROM users WHERE DATE(created_at) = CURDATE()");
             $newToday = (int)($r->fetch_object()->c ?? 0);
-        } catch (Throwable $e) {}
+        } catch (Throwable $e) {
+        }
 
         $openTickets  = 0;
         $totalTickets = 0;
         try {
             $openTickets  = (int)($conn->query("SELECT COUNT(*) AS c FROM calls WHERE status = 'pending'")->fetch_object()->c ?? 0);
             $totalTickets = (int)($conn->query("SELECT COUNT(*) AS c FROM calls")->fetch_object()->c ?? 0);
-        } catch (Throwable $e) {}
+        } catch (Throwable $e) {
+        }
 
         echo json_encode([
             'success' => true,
@@ -57,13 +71,12 @@ try {
 
     if ($action === 'recent' && $method === 'GET') {
         $recentUsers = $conn->query("
-            SELECT u.user_id, u.email, p.username, p.photo, p.xp, p.streak,
-                   IF(a.adm_id IS NOT NULL, 1, 0) AS is_admin
-            FROM users u
-            LEFT JOIN profiles p ON u.user_id = p.user_id
-            LEFT JOIN admins   a ON u.user_id = a.user_id
-            ORDER BY u.user_id DESC
-            LIMIT 5
+            SELECT c.call_id AS id, c.code, p.username AS name, u.email, c.subject, c.status, c.priority, c.created_at
+                FROM calls c
+                LEFT JOIN profiles p ON c.profile_id = p.profile_id
+                LEFT JOIN users u ON p.user_id = u.user_id
+                ORDER BY c.created_at DESC
+                LIMIT 5
         ")->fetch_all(MYSQLI_ASSOC);
 
         $recentTickets = [];
@@ -71,12 +84,13 @@ try {
             $recentTickets = $conn->query("
                 SELECT c.call_id AS id, c.code, p.username AS name, u.email, c.subject, c.status, c.priority, c.created_at
                 FROM calls c
-                LEFT JOIN profiles p ON c.profile_id = p.user_id
-                LEFT JOIN users u ON c.profile_id = u.user_id
+                LEFT JOIN profiles p ON c.profile_id = p.profile_id
+                LEFT JOIN users u ON p.user_id = u.user_id
                 ORDER BY c.created_at DESC
                 LIMIT 5
             ")->fetch_all(MYSQLI_ASSOC);
-        } catch (Throwable $e) {}
+        } catch (Throwable $e) {
+        }
 
         echo json_encode([
             'success'        => true,
@@ -123,30 +137,31 @@ try {
 
     if ($action === 'tickets' && $method === 'GET') {
         $status = $_GET['status'] ?? '';
-        $valid  = ['pending', 'replied', 'closed'];
+        $valid  = ['pending', 'replied', 'closed']; // Corresponde aos data-status do HTML
 
         if ($status && in_array($status, $valid, true)) {
             $stmt = $conn->prepare("
-                SELECT c.call_id AS id, c.code, p.username AS name, u.email, c.subject, c.message,
-                       c.reply, c.status, c.priority, c.created_at, c.updated_at
-                FROM calls c
-                LEFT JOIN profiles p ON c.profile_id = p.user_id
-                LEFT JOIN users u ON c.profile_id = u.user_id
-                WHERE c.status = ?
-                ORDER BY c.created_at DESC
-                LIMIT 120
-            ");
+            SELECT c.call_id AS id, c.code, p.username AS name, u.email, c.subject, c.message,
+                   c.reply, c.status, c.priority, c.created_at, c.updated_at
+            FROM calls c
+            LEFT JOIN profiles p ON c.profile_id = p.profile_id
+            LEFT JOIN users u ON p.user_id = u.user_id
+            WHERE c.status = ?
+            ORDER BY c.created_at DESC
+            LIMIT 120
+        ");
             $stmt->bind_param('s', $status);
         } else {
+            // Se for 'all' ou vazio, traz tudo
             $stmt = $conn->prepare("
-                SELECT c.call_id AS id, c.code, p.username AS name, u.email, c.subject, c.message,
-                       c.reply, c.status, c.priority, c.created_at, c.updated_at
-                FROM calls c
-                LEFT JOIN profiles p ON c.profile_id = p.user_id
-                LEFT JOIN users u ON c.profile_id = u.user_id
-                ORDER BY c.created_at DESC
-                LIMIT 120
-            ");
+            SELECT c.call_id AS id, c.code, p.username AS name, u.email, c.subject, c.message,
+                   c.reply, c.status, c.priority, c.created_at, c.updated_at
+            FROM calls c
+            LEFT JOIN profiles p ON c.profile_id = p.profile_id
+            LEFT JOIN users u ON p.user_id = u.user_id
+            ORDER BY c.created_at DESC
+            LIMIT 120
+        ");
         }
 
         $stmt->execute();
@@ -211,7 +226,6 @@ try {
 
     http_response_code(404);
     echo json_encode(['error' => 'Ação não encontrada']);
-
 } catch (Throwable $e) {
     http_response_code(500);
     echo json_encode(['error' => 'Erro interno: ' . $e->getMessage()]);
