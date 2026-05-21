@@ -1,8 +1,4 @@
 <?php
-try {
-    loadEnv('C:/wamp64/www/.env');
-} catch (Exception $e) {
-}
 
 // Bloco de carregamento do arquivo .env
 function loadEnv($path)
@@ -24,10 +20,16 @@ function loadEnv($path)
 // Função de conexão
 function getConexao() 
 { 
+    try {
+        loadEnv('C:/wamp64/www/.env');
+    } catch (Exception $e) {
+    }
+
     $host = getenv('DB_HOST');
     $user = getenv('DB_USER');
     $pass = getenv('DB_PASS');
     $db   = getenv('DB_NAME');
+
     if (!$host || !$user) {
         throw new Exception("Erro: Variáveis de ambiente do banco de dados não foram definidas no .env.");
     }
