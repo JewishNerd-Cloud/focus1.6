@@ -220,6 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('act-notes').value = '';
     document.getElementById('act-start').value = '08:00';
     document.getElementById('act-end').value = '09:00';
+    document.getElementById('act-frequency').value = 'once';
     document.getElementById('modal-activity').classList.add('open');
     setTimeout(() => document.getElementById('act-title').focus(), 100);
   }
@@ -251,6 +252,7 @@ document.addEventListener('DOMContentLoaded', () => {
       start: document.getElementById('act-start').value,
       end: document.getElementById('act-end').value,
       tag: document.getElementById('act-category').value,
+      frequency: document.getElementById('act-frequency').value,
       note: document.getElementById('act-notes').value.trim(),
       date: getWeekDates(weekOffset)[document.getElementById('act-day').value].toISOString().split('T')[0]
     };
