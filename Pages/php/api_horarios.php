@@ -102,19 +102,63 @@ try {
             throw new Exception("Falha ao capturar o ID da tarefa inserida.");
         }
 
-        $full_start = $data . ' ' . $inicio . ':00';
-        $full_end   = !empty($fim) ? ($data . ' ' . $fim . ':00') : null;
+        $frequency = ($input['frequency'] ?? '') === 'weekly' ? 'weekly' : 'once';
 
-        $sqlSched = "INSERT INTO schedules (profile_id, start_time, end_time, frequency, created_at) VALUES (?, ?, ?, 'once', NOW())";
-        $mysql->execSafe($sqlSched, [$profile_id, $full_start, $full_end]);
+        if ($frequency === 'weekly') {
+            // Cria um schedule+scheduling para cada ocorrência do mesmo dia da semana no mês
+            $selectedDate = new DateTime($data);
+            $dayOfWeek    = (int)$selectedDate->format('N'); // 1=Segunda … 7=Domingo
 
-        $schedule_id = $db->insert_id ?? (method_exists($mysql, 'lastInsertId') ? $mysql->lastInsertId() : null);
+            $cursor = new DateTime($data);
+            $cursor->modify('first day of this month');
+            while ((int)$cursor->format('N') !== $dayOfWeek) {
+                $cursor->modify('+1 day');
+            }
 
-        if (!$schedule_id) {
-            throw new Exception("Falha ao capturar o ID do cronograma inserido.");
+            $lastOfMonth = new DateTime($data);
+            $lastOfMonth->modify('last day of this month');
+
+            $sqlSched = "INSERT INTO schedules (profile_id, start_time, end_time, frequency, created_at) VALUES (?, ?, ?, 'weekly', NOW())";
+
+            while ($cursor <= $lastOfMonth) {
+                $dateStr    = $cursor->format('Y-m-d');
+                $full_start = $dateStr . ' ' . $inicio . ':00';
+                $full_end   = !empty($fim) ? ($dateStr . ' ' . $fim . ':00') : null;
+
+                $mysql->execSafe($sqlSched, [$profile_id, $full_start, $full_end]);
+                $schedule_id = $db->insert_id ?? null;
+
+                if (!$schedule_id) {
+                    throw new Exception("Falha ao capturar o ID do cronograma (semanal).");
+                }
+
+                $mysql->execSafe(
+                    "INSERT INTO schedulings (schedule_id, task_id, done, created_at) VALUES (?, ?, 0, NOW())",
+                    [$schedule_id, $task_id]
+                );
+
+                $cursor->modify('+1 week');
+            }
+        } else {
+            $full_start = $data . ' ' . $inicio . ':00';
+            $full_end   = !empty($fim) ? ($data . ' ' . $fim . ':00') : null;
+
+            $mysql->execSafe(
+                "INSERT INTO schedules (profile_id, start_time, end_time, frequency, created_at) VALUES (?, ?, ?, 'once', NOW())",
+                [$profile_id, $full_start, $full_end]
+            );
+
+            $schedule_id = $db->insert_id ?? (method_exists($mysql, 'lastInsertId') ? $mysql->lastInsertId() : null);
+
+            if (!$schedule_id) {
+                throw new Exception("Falha ao capturar o ID do cronograma inserido.");
+            }
+
+            $mysql->execSafe(
+                "INSERT INTO schedulings (schedule_id, task_id, done, created_at) VALUES (?, ?, 0, NOW())",
+                [$schedule_id, $task_id]
+            );
         }
-
-        $mysql->execSafe("INSERT INTO schedulings (schedule_id, task_id, done, created_at) VALUES (?, ?, 0, NOW())", [$schedule_id, $task_id]);
 
         $db->commit();
         echo json_encode(['success' => true]);

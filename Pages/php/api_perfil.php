@@ -30,12 +30,39 @@ try {
         if (!$res || empty($res)) {
             http_response_code(404);
             echo json_encode([
-                'success' => false, 
+                'success' => false,
                 'error' => 'Perfil não encontrado'
             ]);
             exit;
         }
-        echo json_encode(['success' => true, 'data' => $res[0]]);
+
+        $profile = $res[0];
+
+        // Calcula sequência: dias consecutivos (mais recente primeiro) com ao menos 1 scheduling concluído
+        $streakSql = "SELECT DATE(s.start_time) AS activity_day
+                      FROM schedulings sch
+                      INNER JOIN schedules s ON sch.schedule_id = s.schedule_id
+                      WHERE sch.done = 1 AND s.profile_id = ?
+                      GROUP BY DATE(s.start_time)
+                      ORDER BY activity_day DESC";
+        $streakRows = $mysql->searchSafe($streakSql, [$profile_id]);
+
+        $streak = 0;
+        if ($streakRows) {
+            $expected = new DateTime('today');
+            foreach ($streakRows as $row) {
+                $day = new DateTime($row['activity_day']);
+                if ($day->format('Y-m-d') === $expected->format('Y-m-d')) {
+                    $streak++;
+                    $expected->modify('-1 day');
+                } else {
+                    break;
+                }
+            }
+        }
+        $profile['streak'] = $streak;
+
+        echo json_encode(['success' => true, 'data' => $profile]);
         exit;
     }
 
